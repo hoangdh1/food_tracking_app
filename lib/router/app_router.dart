@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../features/home/ui/home_page.dart';
+
 class AppRouter {
   static Route<dynamic> generateRoute(RouteSettings settings) {
     switch (settings.name) {
