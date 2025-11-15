@@ -1,0 +1,1 @@
+// This file will define the abstract class for food repository.
