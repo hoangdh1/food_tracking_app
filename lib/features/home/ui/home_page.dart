@@ -164,12 +164,7 @@ class _HomePageState extends State<HomePage> {
           child: Container(
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(12),
-              border: Border(
-                left: BorderSide(
-                  color: statusColor,
-                  width: 4,
-                ),
-              ),
+              border: Border(left: BorderSide(color: statusColor, width: 4)),
             ),
             child: ListTile(
               leading: ClipRRect(
@@ -205,8 +200,15 @@ class _HomePageState extends State<HomePage> {
                   ),
                 ],
               ),
-              trailing: Icon(Icons.chevron_right),
-              onTap: () {},
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () {
+                // Navigate to food detail page
+                Navigator.pushNamed(
+                  context,
+                  AppRouter.foodDetail,
+                  arguments: 'food_$index', // Pass the food ID
+                );
+              },
             ),
           ),
         );
@@ -230,7 +232,8 @@ class _HomePageState extends State<HomePage> {
       selectedIndex: 0,
       onDestinationSelected: (index) {
         // Handle navigation based on selected index
-        if (index == 1) { // "Add" button
+        if (index == 1) {
+          // "Add" button
           Navigator.pushNamed(context, AppRouter.addFood);
         }
         // Add more cases for other navigation items later
