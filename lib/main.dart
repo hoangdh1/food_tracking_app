@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'features/home/ui/home_page.dart';
+import 'router/app_router.dart';
 
 void main() {
   runApp(const MyApp());
@@ -16,7 +16,8 @@ class MyApp extends StatelessWidget {
         primarySwatch: Colors.green,
         useMaterial3: true,
       ),
-      home: const HomePage(),
+      initialRoute: AppRouter.home,
+      onGenerateRoute: AppRouter.generateRoute,
       debugShowCheckedModeBanner: false,
     );
   }

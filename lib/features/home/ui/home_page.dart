@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../router/app_router.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -50,19 +51,19 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-      elevation: 4,
-      shadowColor: Colors.black.withOpacity(0.3),
-      backgroundColor: const Color(0xFF4CAF50), // primary color #4CAF50
-      foregroundColor: Colors.white,
-      title: const Text(
-        "Food Inventory",
-        style: TextStyle(
-          fontSize: 20,
-          fontWeight: FontWeight.bold,
-          letterSpacing: -0.5,
+        elevation: 4,
+        shadowColor: Colors.black.withOpacity(0.3),
+        backgroundColor: const Color(0xFF4CAF50),
+        foregroundColor: Colors.white,
+        title: const Text(
+          "Food Inventory",
+          style: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+            letterSpacing: -0.5,
+          ),
         ),
       ),
-    ),
       body: SingleChildScrollView(
         child: Column(
           children: [
@@ -166,7 +167,7 @@ class _HomePageState extends State<HomePage> {
               border: Border(
                 left: BorderSide(
                   color: statusColor,
-                  width: 4, // Thickness of the left border
+                  width: 4,
                 ),
               ),
             ),
@@ -227,7 +228,13 @@ class _HomePageState extends State<HomePage> {
   Widget _buildBottomNav() {
     return NavigationBar(
       selectedIndex: 0,
-      onDestinationSelected: (_) {},
+      onDestinationSelected: (index) {
+        // Handle navigation based on selected index
+        if (index == 1) { // "Add" button
+          Navigator.pushNamed(context, AppRouter.addFood);
+        }
+        // Add more cases for other navigation items later
+      },
       destinations: const [
         NavigationDestination(
           icon: Icon(Icons.inventory_2),
