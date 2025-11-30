@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 import '../features/home/ui/home_page.dart';
 import '../features/add_food/ui/add_food_page.dart';
 import '../features/food_detail/ui/food_detail_page.dart';
+import '../features/notifications/ui/notification_page.dart';
 
 class AppRouter {
   static const String home = '/';
   static const String addFood = '/add-food';
   static const String foodDetail = '/food-detail';
+  static const String notifications = '/notifications';
 
   static Route<dynamic> generateRoute(RouteSettings settings) {
     switch (settings.name) {
@@ -21,6 +23,9 @@ class AppRouter {
         return MaterialPageRoute(
           builder: (_) => FoodDetailPage(foodId: foodId),
         );
+      
+      case notifications:
+        return MaterialPageRoute(builder: (_) => const NotificationPage());
       
       default:
         return MaterialPageRoute(

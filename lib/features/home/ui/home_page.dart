@@ -231,12 +231,25 @@ class _HomePageState extends State<HomePage> {
     return NavigationBar(
       selectedIndex: 0,
       onDestinationSelected: (index) {
-        // Handle navigation based on selected index
-        if (index == 1) {
-          // "Add" button
+        switch (index) {
+        case 0:
+          // Already on home
+          break;
+        case 1:
+          // Navigate to Add Food
           Navigator.pushNamed(context, AppRouter.addFood);
-        }
-        // Add more cases for other navigation items later
+          break;
+        case 2:
+          // TODO: Navigate to Shopping List
+          break;
+        case 3:
+          // Navigate to Notifications
+          Navigator.pushNamed(context, AppRouter.notifications);
+          break;
+        case 4:
+          // TODO: Navigate to Settings
+          break;
+      }
       },
       destinations: const [
         NavigationDestination(
