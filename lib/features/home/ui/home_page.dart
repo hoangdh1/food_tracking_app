@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 import '../../../router/app_router.dart';
+import '../../../data/repositories/food_repository.dart';
+import '../../../data/repositories/category_repository.dart';
+import '../../../data/models/food_model.dart';
+import '../../../data/models/category_model.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -11,41 +15,30 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   int selectedFilterIndex = 0;
 
-  final List<Map<String, dynamic>> mockFoods = [
-    {
-      'name': 'Milk',
-      'category': 'Dairy',
-      'qty': '1L',
-      'days': 12,
-      'image':
-          'https://lh3.googleusercontent.com/aida-public/AB6AXuAt4jsbJ0YBb7NandmvZsrTQYHNbtnedcNHGBQaz7UVOlrMw7AO-bxdPNuuY7um6KfhwpGgYgBYjNaAgbnF2eBqc3bXC4tUFMlrkuBv301MsFR6G2Ji3B1TUrKHA4q084eHUcYIC54qCLvz8DiRPlDlfjLoGQboWXov90ZUU0nMq71Hi8kdN2s2927b9D4Vs8rV6XswtRpejk4wy9ORGfQyrmt700pgBYQ4ZI21BPUHzSQeYD0jkbwvY5YEXIQ4ZEiVNXSNUBnNKaQ',
-      'status': 'green',
-    },
-    {
-      'name': 'Chicken Breast',
-      'category': 'Meat',
-      'qty': '500g',
-      'days': 3,
-      'image': '',
-      'status': 'orange',
-    },
-    {
-      'name': 'Lettuce',
-      'category': 'Vegetable',
-      'qty': '1 head',
-      'days': -1,
-      'image': '',
-      'status': 'red',
-    },
-    {
-      'name': 'Apples',
-      'category': 'Fruit',
-      'qty': '6 pcs',
-      'days': 8,
-      'image': '',
-      'status': 'green',
-    },
-  ];
+  final FoodRepository _foodRepo = FoodRepository();
+  final CategoryRepository _categoryRepo = CategoryRepository();
+
+  List<FoodItem> foods = [];
+  bool isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadFoods();
+  }
+
+  Future<void> _loadFoods() async {
+    final results = await _foodRepo.getAllFoods();
+    setState(() {
+      foods = results;
+      isLoading = false;
+    });
+  }
+
+  Future<String> _getCategoryName(String categoryId) async {
+    final category = await _categoryRepo.getCategoryById(categoryId);
+    return category?.name ?? 'Unknown';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -87,7 +80,7 @@ class _HomePageState extends State<HomePage> {
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Row(
         children: const [
-          _SummaryCard(title: "Total Items", count: "32", color: Colors.black),
+          _SummaryCard(title: "Total Items", count: "33", color: Colors.black),
           SizedBox(width: 8),
           _SummaryCard(
             title: "Expiring Soon",
@@ -137,22 +130,38 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _buildFoodList() {
+    if (isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (foods.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.all(20),
+        child: Text("No food items found"),
+      );
+    }
+
     return ListView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
-      itemCount: mockFoods.length,
+      itemCount: foods.length,
       itemBuilder: (context, index) {
-        final food = mockFoods[index];
-        final days = food['days'];
+        final food = foods[index];
+      print('🚀 food...${food}');
+        final days = food.expiryDate.difference(DateTime.now()).inDays;
+        final category = _getCategoryName(food.categoryId);
 
+        Color statusColor;
         String statusText;
-        Color statusColor = _getStatusColor(food['status']);
 
         if (days < 0) {
+          statusColor = Colors.red;
           statusText = "Expired";
-        } else if (days == 0) {
-          statusText = "Expires today";
+        } else if (days <= food.notificationThreshold) {
+          statusColor = Colors.orange;
+          statusText = "$days days left";
         } else {
+          statusColor = Colors.green;
           statusText = "$days days left";
         }
         return Card(
@@ -170,7 +179,7 @@ class _HomePageState extends State<HomePage> {
               leading: ClipRRect(
                 borderRadius: BorderRadius.circular(8),
                 child: Image.network(
-                  food['image'],
+                  food.imageUrl ?? '',
                   width: 50,
                   height: 50,
                   fit: BoxFit.cover,
@@ -183,13 +192,13 @@ class _HomePageState extends State<HomePage> {
                 ),
               ),
               title: Text(
-                food['name'],
+                food.name,
                 style: const TextStyle(fontWeight: FontWeight.w600),
               ),
               subtitle: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text("${food['category']} • ${food['qty']}"),
+                  Text("${category} • ${food.quantity}"),
                   const SizedBox(height: 4),
                   Text(
                     statusText,
@@ -232,24 +241,24 @@ class _HomePageState extends State<HomePage> {
       selectedIndex: 0,
       onDestinationSelected: (index) {
         switch (index) {
-        case 0:
-          // Already on home
-          break;
-        case 1:
-          // Navigate to Add Food
-          Navigator.pushNamed(context, AppRouter.addFood);
-          break;
-        case 2:
-          // TODO: Navigate to Shopping List
-          break;
-        case 3:
-          // Navigate to Notifications
-          Navigator.pushNamed(context, AppRouter.notifications);
-          break;
-        case 4:
-          // TODO: Navigate to Settings
-          break;
-      }
+          case 0:
+            // Already on home
+            break;
+          case 1:
+            // Navigate to Add Food
+            Navigator.pushNamed(context, AppRouter.addFood);
+            break;
+          case 2:
+            // TODO: Navigate to Shopping List
+            break;
+          case 3:
+            // Navigate to Notifications
+            Navigator.pushNamed(context, AppRouter.notifications);
+            break;
+          case 4:
+            // TODO: Navigate to Settings
+            break;
+        }
       },
       destinations: const [
         NavigationDestination(
