@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 import 'widgets/delete_confirmation_dialog.dart';
+import '../../../data/repositories/food_repository.dart';
+import '../../../data/repositories/category_repository.dart';
+import '../../../data/models/food_model.dart';
+import '../../../data/models/category_model.dart';
 
 enum FoodDetailMode { view, edit }
 
@@ -13,24 +17,93 @@ class FoodDetailPage extends StatefulWidget {
 }
 
 class _FoodDetailPageState extends State<FoodDetailPage> {
+  final FoodRepository _foodRepo = FoodRepository();
+  final CategoryRepository _categoryRepo = CategoryRepository();
+  
   FoodDetailMode _mode = FoodDetailMode.view;
-
+  
   // Form controllers
-  final _nameController = TextEditingController(text: 'Organic Avocados');
-  final _quantityController = TextEditingController(text: '2');
-  String _category = 'Produce';
-  String _storage = 'Fridge';
-  DateTime _expiryDate = DateTime(2024, 10, 28);
+  final _nameController = TextEditingController();
+  final _quantityController = TextEditingController();
+  
+  // Data
+  FoodItem? _foodItem;
+  List<Category> _categories = [];
+  Map<String, Category> _categoriesMap = {};
+  String? _selectedCategoryId;
+  DateTime _expiryDate = DateTime.now().add(const Duration(days: 7));
+  int _notificationThreshold = 3;
+  
+  bool _isLoading = true;
+  bool _isSaving = false;
 
-  // Mock data
-  final String _imageUrl =
-      'https://lh3.googleusercontent.com/aida-public/AB6AXuDVlcq7YhPTsr4_e71pvHbgXCVXmvGW8bH93QAQ3GftUUvF121RzDdeDlUqYe9wHS5sG-bJBORyaKtbdE9eiZCwbmJiN8aM4jh9ySw52TeJckfT0sGqf_MM2OT8DgtetB490bWj2NztYC_czTNHesxO7r43JlExmAawR18w4rWWBStSmWsV_apDhpBLuRyNFXpA-7w-_QOMVNiAdRs4D6uBVUdMkBliTpp3irGlCgT-0Xi1Wm1ShZ2xaCBqplH7R3zq_OHBrzUH9qA';
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
 
   @override
   void dispose() {
     _nameController.dispose();
     _quantityController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadData() async {
+    setState(() => _isLoading = true);
+    
+    try {
+      print('🔍 Loading food detail for ID: ${widget.foodId}');
+      
+      // Load food item and categories in parallel
+      final results = await Future.wait([
+        _foodRepo.getFoodById(widget.foodId),
+        _categoryRepo.getAllCategories(),
+      ]);
+      
+      final foodItem = results[0] as FoodItem?;
+      final categories = results[1] as List<Category>;
+      
+      if (foodItem == null) {
+        throw Exception('Food item not found');
+      }
+      
+      // Create categories map
+      final categoriesMap = <String, Category>{};
+      for (var cat in categories) {
+        categoriesMap[cat.id] = cat;
+      }
+      
+      // Set form data
+      _nameController.text = foodItem.name;
+      _quantityController.text = foodItem.quantity.toString();
+      _selectedCategoryId = foodItem.categoryId;
+      _expiryDate = foodItem.expiryDate;
+      _notificationThreshold = foodItem.notificationThreshold;
+      
+      setState(() {
+        _foodItem = foodItem;
+        _categories = categories;
+        _categoriesMap = categoriesMap;
+        _isLoading = false;
+      });
+      
+      print('✅ Food item loaded: ${foodItem.name}');
+    } catch (e) {
+      print('❌ Error loading food detail: $e');
+      setState(() => _isLoading = false);
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error loading food: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        Navigator.pop(context);
+      }
+    }
   }
 
   void _toggleMode() {
@@ -45,25 +118,107 @@ class _FoodDetailPageState extends State<FoodDetailPage> {
     showDialog(
       context: context,
       builder: (context) => DeleteConfirmationDialog(
-        onConfirm: () {
-          Navigator.pop(context); // Close dialog
-          Navigator.pop(context); // Go back to home
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Item deleted successfully')),
-          );
-        },
+        onConfirm: _deleteFood,
       ),
     );
   }
 
-  void _saveChanges() {
-    // TODO: Implement save logic
-    setState(() {
-      _mode = FoodDetailMode.view;
-    });
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Changes saved successfully')),
-    );
+  Future<void> _deleteFood() async {
+    try {
+      print('🗑️ Deleting food: ${widget.foodId}');
+      
+      await _foodRepo.deleteFood(widget.foodId);
+      
+      print('✅ Food deleted successfully');
+      
+      if (mounted) {
+        Navigator.pop(context); // Close dialog
+        Navigator.pop(context, true); // Go back to home with success flag
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Item deleted successfully'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      print('❌ Error deleting food: $e');
+      
+      if (mounted) {
+        Navigator.pop(context); // Close dialog
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error deleting item: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _saveChanges() async {
+    if (_foodItem == null || _selectedCategoryId == null) {
+      return;
+    }
+    
+    setState(() => _isSaving = true);
+    
+    try {
+      print('💾 Saving changes for food: ${widget.foodId}');
+      
+      // Parse quantity
+      int quantity = 1;
+      try {
+        quantity = int.parse(_quantityController.text);
+      } catch (e) {
+        quantity = _foodItem!.quantity;
+      }
+      
+      // Create updated food item
+      final updatedFood = _foodItem!.copyWith(
+        name: _nameController.text.trim(),
+        quantity: quantity,
+        categoryId: _selectedCategoryId,
+        expiryDate: _expiryDate,
+        notificationThreshold: _notificationThreshold,
+        updatedAt: DateTime.now(),
+      );
+      
+      await _foodRepo.updateFood(widget.foodId, updatedFood);
+      
+      print('✅ Food updated successfully');
+      
+      // Reload data
+      await _loadData();
+      
+      setState(() {
+        _mode = FoodDetailMode.view;
+        _isSaving = false;
+      });
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Changes saved successfully'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      print('❌ Error saving changes: $e');
+      
+      setState(() => _isSaving = false);
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error saving changes: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   int _getDaysUntilExpiry() {
@@ -81,12 +236,43 @@ class _FoodDetailPageState extends State<FoodDetailPage> {
   Color _getExpiryColor() {
     final days = _getDaysUntilExpiry();
     if (days < 0) return const Color(0xFFD32F2F);
-    if (days <= 5) return const Color(0xFFFFC107);
+    if (days <= _notificationThreshold) return const Color(0xFFFFC107);
     return const Color(0xFF4CAF50);
+  }
+
+  String _getCategoryName() {
+    if (_selectedCategoryId == null) return 'Unknown';
+    return _categoriesMap[_selectedCategoryId]?.name ?? 'Unknown';
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return Scaffold(
+        backgroundColor: const Color(0xFFF8F9FA),
+        appBar: AppBar(
+          elevation: 0,
+          backgroundColor: const Color(0xFFF8F9FA).withOpacity(0.8),
+          foregroundColor: const Color(0xFF212529),
+          title: const Text('Loading...'),
+        ),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (_foodItem == null) {
+      return Scaffold(
+        backgroundColor: const Color(0xFFF8F9FA),
+        appBar: AppBar(
+          elevation: 0,
+          backgroundColor: const Color(0xFFF8F9FA).withOpacity(0.8),
+          foregroundColor: const Color(0xFF212529),
+          title: const Text('Error'),
+        ),
+        body: const Center(child: Text('Food item not found')),
+      );
+    }
+
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FA),
       appBar: AppBar(
@@ -103,7 +289,7 @@ class _FoodDetailPageState extends State<FoodDetailPage> {
         ),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.pop(context),
+          onPressed: () => Navigator.pop(context, true),
         ),
       ),
       body: Stack(
@@ -139,17 +325,15 @@ class _FoodDetailPageState extends State<FoodDetailPage> {
       children: [
         ClipRRect(
           borderRadius: BorderRadius.circular(16),
-          child: Image.network(
-            _imageUrl,
-            height: 256,
-            width: double.infinity,
-            fit: BoxFit.cover,
-            errorBuilder: (context, error, stackTrace) => Container(
-              height: 256,
-              color: Colors.grey.shade300,
-              child: const Icon(Icons.image_not_supported, size: 64),
-            ),
-          ),
+          child: _foodItem!.imageUrl.isNotEmpty
+              ? Image.network(
+                  _foodItem!.imageUrl,
+                  height: 256,
+                  width: double.infinity,
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) => _buildPlaceholderImage(),
+                )
+              : _buildPlaceholderImage(),
         ),
         if (_mode == FoodDetailMode.edit)
           Positioned(
@@ -170,7 +354,6 @@ class _FoodDetailPageState extends State<FoodDetailPage> {
               child: IconButton(
                 icon: const Icon(Icons.edit, color: Colors.white),
                 onPressed: () {
-                  // TODO: Implement image picker
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text('Image picker coming soon')),
                   );
@@ -182,12 +365,20 @@ class _FoodDetailPageState extends State<FoodDetailPage> {
     );
   }
 
+  Widget _buildPlaceholderImage() {
+    return Container(
+      height: 256,
+      color: Colors.grey.shade300,
+      child: const Icon(Icons.fastfood, size: 64, color: Colors.grey),
+    );
+  }
+
   Widget _buildViewMode() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          _nameController.text,
+          _foodItem!.name,
           style: const TextStyle(
             fontSize: 28,
             fontWeight: FontWeight.bold,
@@ -211,19 +402,7 @@ class _FoodDetailPageState extends State<FoodDetailPage> {
           hint: 'e.g., Organic Avocados',
         ),
         const SizedBox(height: 20),
-        _buildDropdown(
-          label: 'Category',
-          value: _category,
-          items: ['Dairy', 'Produce', 'Pantry', 'Meat', 'Bakery'],
-          onChanged: (value) => setState(() => _category = value!),
-        ),
-        const SizedBox(height: 20),
-        _buildDropdown(
-          label: 'Storage Location',
-          value: _storage,
-          items: ['Fridge', 'Freezer', 'Pantry'],
-          onChanged: (value) => setState(() => _storage = value!),
-        ),
+        _buildCategoryDropdown(),
         const SizedBox(height: 20),
         Row(
           children: [
@@ -241,6 +420,8 @@ class _FoodDetailPageState extends State<FoodDetailPage> {
             ),
           ],
         ),
+        const SizedBox(height: 20),
+        _buildNotificationThresholdSlider(),
         const SizedBox(height: 16),
         _buildExpiryBanner(),
       ],
@@ -291,18 +472,13 @@ class _FoodDetailPageState extends State<FoodDetailPage> {
     );
   }
 
-  Widget _buildDropdown({
-    required String label,
-    required String value,
-    required List<String> items,
-    required ValueChanged<String?> onChanged,
-  }) {
+  Widget _buildCategoryDropdown() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          label,
-          style: const TextStyle(
+        const Text(
+          'Category',
+          style: TextStyle(
             fontSize: 14,
             fontWeight: FontWeight.w500,
             color: Color(0xFF495057),
@@ -316,15 +492,18 @@ class _FoodDetailPageState extends State<FoodDetailPage> {
             border: Border.all(color: const Color(0xFFDEE2E6)),
           ),
           child: DropdownButtonFormField<String>(
-            value: value,
-            decoration: InputDecoration(
+            value: _selectedCategoryId,
+            decoration: const InputDecoration(
               border: InputBorder.none,
-              contentPadding: const EdgeInsets.all(16),
+              contentPadding: EdgeInsets.all(16),
             ),
-            items: items.map((item) {
-              return DropdownMenuItem(value: item, child: Text(item));
+            items: _categories.map((category) {
+              return DropdownMenuItem(
+                value: category.id,
+                child: Text(category.name),
+              );
             }).toList(),
-            onChanged: onChanged,
+            onChanged: (value) => setState(() => _selectedCategoryId = value),
           ),
         ),
       ],
@@ -380,6 +559,55 @@ class _FoodDetailPageState extends State<FoodDetailPage> {
     );
   }
 
+  Widget _buildNotificationThresholdSlider() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text(
+              'Alert Before Expiry',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                color: Color(0xFF495057),
+              ),
+            ),
+            Text(
+              '$_notificationThreshold days',
+              style: const TextStyle(
+                fontSize: 14,
+                color: Color(0xFF666666),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        SliderTheme(
+          data: SliderThemeData(
+            activeTrackColor: const Color(0xFF4CAF50),
+            inactiveTrackColor: const Color(0xFFE0E0E0),
+            thumbColor: const Color(0xFF4CAF50),
+            overlayColor: const Color(0xFF4CAF50).withOpacity(0.2),
+            thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 10),
+            trackHeight: 4,
+          ),
+          child: Slider(
+            value: _notificationThreshold.toDouble(),
+            min: 1,
+            max: 7,
+            divisions: 6,
+            label: '$_notificationThreshold days',
+            onChanged: (value) {
+              setState(() => _notificationThreshold = value.toInt());
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildExpiryBanner() {
     final expiryColor = _getExpiryColor();
     return Container(
@@ -415,13 +643,13 @@ class _FoodDetailPageState extends State<FoodDetailPage> {
       crossAxisSpacing: 16,
       childAspectRatio: 1.5,
       children: [
-        _buildInfoCard('Quantity', _quantityController.text),
+        _buildInfoCard('Quantity', _foodItem!.quantity.toString()),
         _buildInfoCard(
           'Expiry Date',
           '${_expiryDate.month}/${_expiryDate.day}/${_expiryDate.year}',
         ),
-        _buildInfoCard('Category', _category),
-        _buildInfoCard('Storage', _storage),
+        _buildInfoCard('Category', _getCategoryName()),
+        _buildInfoCard('Alert Days', '${_foodItem!.notificationThreshold} days'),
       ],
     );
   }
@@ -521,7 +749,7 @@ class _FoodDetailPageState extends State<FoodDetailPage> {
               ),
             ] else ...[
               ElevatedButton(
-                onPressed: _saveChanges,
+                onPressed: _isSaving ? null : _saveChanges,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF4CAF50),
                   foregroundColor: Colors.white,
@@ -531,13 +759,22 @@ class _FoodDetailPageState extends State<FoodDetailPage> {
                   ),
                   elevation: 4,
                 ),
-                child: const Text(
-                  'Save Changes',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
+                child: _isSaving
+                    ? const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                        ),
+                      )
+                    : const Text(
+                        'Save Changes',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
               ),
               const SizedBox(height: 12),
               OutlinedButton(

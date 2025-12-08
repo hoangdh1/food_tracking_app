@@ -29,21 +29,32 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _loadData() async {
-    // Load both foods and categories in parallel
-    final results = await Future.wait([
-      _foodRepo.getAllFoods(),
-      _categoryRepo.getCategoriesMap(),
-    ]);
-
-    final loadedFoods = results[0] as List<FoodItem>;
-    final categories = results[1] as Map<String, Category>;
-
     setState(() {
-      foods = loadedFoods;
-      // Convert Category map to String map
-      categoryMap = categories.map((id, cat) => MapEntry(id, cat.name));
-      isLoading = false;
+      isLoading = true;
     });
+
+    try {
+      // Load both foods and categories in parallel
+      final results = await Future.wait([
+        _foodRepo.getAllFoods(),
+        _categoryRepo.getCategoriesMap(),
+      ]);
+
+      final loadedFoods = results[0] as List<FoodItem>;
+      final categories = results[1] as Map<String, Category>;
+
+      setState(() {
+        foods = loadedFoods;
+        // Convert Category map to String map
+        categoryMap = categories.map((id, cat) => MapEntry(id, cat.name));
+        isLoading = false;
+      });
+    } catch (e) {
+      print('Error loading data: $e');
+      setState(() {
+        isLoading = false;
+      });
+    }
   }
 
   String _getCategoryName(String categoryId) {
@@ -220,13 +231,14 @@ class _HomePageState extends State<HomePage> {
                 ],
               ),
               trailing: const Icon(Icons.chevron_right),
-              onTap: () {
-                // Navigate to food detail page
-                Navigator.pushNamed(
+              onTap: () async {
+                // Navigate to food detail page and refresh on return
+                await Navigator.pushNamed(
                   context,
                   AppRouter.foodDetail,
-                  arguments: 'food_$index', // Pass the food ID
+                  arguments: food.id,
                 );
+                _loadData(); // Refresh data after returning
               },
             ),
           ),
@@ -249,24 +261,26 @@ class _HomePageState extends State<HomePage> {
   Widget _buildBottomNav() {
     return NavigationBar(
       selectedIndex: 0,
-      onDestinationSelected: (index) {
+      onDestinationSelected: (index) async {
         switch (index) {
           case 0:
             // Already on home
             break;
           case 1:
-            // Navigate to Add Food
-            Navigator.pushNamed(context, AppRouter.addFood);
+            // Navigate to Add Food and refresh on return
+            await Navigator.pushNamed(context, AppRouter.addFood);
+            _loadData(); // Refresh data after returning
             break;
           case 2:
             // TODO: Navigate to Shopping List
             break;
           case 3:
-            // Navigate to Notifications
-            Navigator.pushNamed(context, AppRouter.notifications);
+            // Navigate to Alerts page
+            
             break;
           case 4:
-            // TODO: Navigate to Settings
+            // TODO: Navigate to Notifications Settings
+            Navigator.pushNamed(context, AppRouter.notifications);
             break;
         }
       },
