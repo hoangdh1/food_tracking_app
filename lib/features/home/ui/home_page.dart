@@ -19,25 +19,35 @@ class _HomePageState extends State<HomePage> {
   final CategoryRepository _categoryRepo = CategoryRepository();
 
   List<FoodItem> foods = [];
+  Map<String, String> categoryMap = {}; // categoryId -> categoryName
   bool isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    _loadFoods();
+    _loadData();
   }
 
-  Future<void> _loadFoods() async {
-    final results = await _foodRepo.getAllFoods();
+  Future<void> _loadData() async {
+    // Load both foods and categories in parallel
+    final results = await Future.wait([
+      _foodRepo.getAllFoods(),
+      _categoryRepo.getCategoriesMap(),
+    ]);
+
+    final loadedFoods = results[0] as List<FoodItem>;
+    final categories = results[1] as Map<String, Category>;
+
     setState(() {
-      foods = results;
+      foods = loadedFoods;
+      // Convert Category map to String map
+      categoryMap = categories.map((id, cat) => MapEntry(id, cat.name));
       isLoading = false;
     });
   }
 
-  Future<String> _getCategoryName(String categoryId) async {
-    final category = await _categoryRepo.getCategoryById(categoryId);
-    return category?.name ?? 'Unknown';
+  String _getCategoryName(String categoryId) {
+    return categoryMap[categoryId] ?? 'Unknown';
   }
 
   @override
