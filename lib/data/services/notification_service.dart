@@ -62,9 +62,11 @@ class NotificationService {
   }
 
   /// Request notification permissions
-  Future<void> _requestPermissions() async {
+  Future<bool> _requestPermissions() async {
+    print('📱 Requesting notification permissions...');
+
     // iOS/macOS permissions
-    await _notifications
+    final iosGranted = await _notifications
         .resolvePlatformSpecificImplementation<
             IOSFlutterLocalNotificationsPlugin>()
         ?.requestPermissions(
@@ -73,7 +75,7 @@ class NotificationService {
           sound: true,
         );
 
-    await _notifications
+    final macosGranted = await _notifications
         .resolvePlatformSpecificImplementation<
             MacOSFlutterLocalNotificationsPlugin>()
         ?.requestPermissions(
@@ -83,10 +85,54 @@ class NotificationService {
         );
 
     // Android 13+ permissions
-    await _notifications
+    final androidGranted = await _notifications
         .resolvePlatformSpecificImplementation<
             AndroidFlutterLocalNotificationsPlugin>()
         ?.requestNotificationsPermission();
+
+    final granted = iosGranted ?? macosGranted ?? androidGranted ?? false;
+
+    if (granted) {
+      print('✅ Notification permissions granted!');
+    } else {
+      print('⚠️ Notification permissions denied or not applicable');
+    }
+
+    return granted;
+  }
+
+  /// Check if notification permissions are granted
+  Future<bool> areNotificationsEnabled() async {
+    // Check iOS permissions
+    final iosPlugin = _notifications
+        .resolvePlatformSpecificImplementation<
+            IOSFlutterLocalNotificationsPlugin>();
+
+    if (iosPlugin != null) {
+      final granted = await iosPlugin.requestPermissions(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+      return granted ?? false;
+    }
+
+    // Check macOS permissions
+    final macosPlugin = _notifications
+        .resolvePlatformSpecificImplementation<
+            MacOSFlutterLocalNotificationsPlugin>();
+
+    if (macosPlugin != null) {
+      final granted = await macosPlugin.requestPermissions(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+      return granted ?? false;
+    }
+
+    // Android permissions are handled differently
+    return true; // Assume granted for Android
   }
 
   /// Handle notification tap
@@ -307,6 +353,63 @@ class NotificationService {
       print('✅ Scheduled daily summary at $hour:$minute');
     } catch (e) {
       print('❌ Error scheduling daily summary: $e');
+    }
+  }
+
+  /// Show an immediate test notification (for testing purposes)
+  Future<bool> showImmediateTestNotification({
+    String? title,
+    String? body,
+  }) async {
+    if (!_initialized) {
+      print('⚠️ Notification service not initialized');
+      return false;
+    }
+
+    try {
+      // Check permissions first
+      print('🔍 Checking notification permissions...');
+      final hasPermission = await areNotificationsEnabled();
+
+      if (!hasPermission) {
+        print('❌ Notification permissions not granted!');
+        print('💡 Please enable notifications in Settings > Notifications > Food Tracking');
+        return false;
+      }
+
+      print('✅ Permissions OK, showing notification...');
+
+      await _notifications.show(
+        999998, // Fixed ID for test notification
+        title ?? '🧪 Test Notification',
+        body ?? 'This is a test notification displayed immediately!',
+        const NotificationDetails(
+          android: AndroidNotificationDetails(
+            'test_channel',
+            'Test Notifications',
+            channelDescription: 'Channel for testing notifications',
+            importance: Importance.high,
+            priority: Priority.high,
+          ),
+          iOS: DarwinNotificationDetails(
+            presentAlert: true,
+            presentBadge: true,
+            presentSound: true,
+          ),
+          macOS: DarwinNotificationDetails(
+            presentAlert: true,
+            presentBadge: true,
+            presentSound: true,
+          ),
+        ),
+        payload: 'test_notification',
+      );
+      print('✅ Immediate test notification sent successfully!');
+      return true;
+    } catch (e) {
+      print('❌ Error showing test notification: $e');
+      print('Stack trace: ${StackTrace.current}');
+      return false;
     }
   }
 }

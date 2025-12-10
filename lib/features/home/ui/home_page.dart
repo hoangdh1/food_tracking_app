@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../router/app_router.dart';
 import '../../../data/repositories/food_repository.dart';
 import '../../../data/repositories/category_repository.dart';
+import '../../../data/repositories/settings_repository.dart';
 import '../../../data/models/food_model.dart';
 import '../../../data/models/category_model.dart';
 
@@ -17,15 +18,42 @@ class _HomePageState extends State<HomePage> {
 
   final FoodRepository _foodRepo = FoodRepository();
   final CategoryRepository _categoryRepo = CategoryRepository();
+  final SettingsRepository _settingsRepo = SettingsRepository();
 
-  List<FoodItem> foods = [];
+  List<FoodItem> allFoods = []; // All foods from database
+  List<FoodItem> filteredFoods = []; // Filtered foods to display
   Map<String, String> categoryMap = {}; // categoryId -> categoryName
   bool isLoading = true;
+
+  // Search controller
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
+
+  // Statistics
+  int totalItems = 0;
+  int expiringSoonCount = 0;
+  int expiredCount = 0;
+  int expiryAlertDays = 5; // Default, will be loaded from settings
 
   @override
   void initState() {
     super.initState();
+    _searchController.addListener(_onSearchChanged);
     _loadData();
+  }
+
+  @override
+  void dispose() {
+    _searchController.removeListener(_onSearchChanged);
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _onSearchChanged() {
+    setState(() {
+      _searchQuery = _searchController.text;
+      _applyFilters();
+    });
   }
 
   Future<void> _loadData() async {
@@ -34,19 +62,23 @@ class _HomePageState extends State<HomePage> {
     });
 
     try {
-      // Load both foods and categories in parallel
+      // Load foods, categories, and settings in parallel
       final results = await Future.wait([
         _foodRepo.getAllFoods(),
         _categoryRepo.getCategoriesMap(),
+        _settingsRepo.getSettings(),
       ]);
 
       final loadedFoods = results[0] as List<FoodItem>;
       final categories = results[1] as Map<String, Category>;
+      final settings = results[2] as dynamic;
 
       setState(() {
-        foods = loadedFoods;
-        // Convert Category map to String map
+        allFoods = loadedFoods;
         categoryMap = categories.map((id, cat) => MapEntry(id, cat.name));
+        expiryAlertDays = settings.expiryAlertDays as int;
+        _calculateStatistics();
+        _applyFilters();
         isLoading = false;
       });
     } catch (e) {
@@ -55,6 +87,62 @@ class _HomePageState extends State<HomePage> {
         isLoading = false;
       });
     }
+  }
+
+  void _calculateStatistics() {
+    totalItems = allFoods.length;
+    expiringSoonCount = 0;
+    expiredCount = 0;
+
+    final now = DateTime.now();
+
+    for (var food in allFoods) {
+      final days = food.expiryDate.difference(now).inDays;
+      if (days < 0) {
+        expiredCount++;
+      } else if (days <= expiryAlertDays) {
+        expiringSoonCount++;
+      }
+    }
+  }
+
+  void _applyFilters() {
+    List<FoodItem> result = List.from(allFoods);
+
+    // Apply search filter
+    if (_searchQuery.isNotEmpty) {
+      final query = _searchQuery.toLowerCase();
+      result = result.where((food) {
+        return food.name.toLowerCase().contains(query) ||
+            _getCategoryName(food.categoryId).toLowerCase().contains(query);
+      }).toList();
+    }
+
+    // Apply chip filter
+    final now = DateTime.now();
+    switch (selectedFilterIndex) {
+      case 0: // All
+        // Show all (already in result)
+        break;
+      case 1: // Expiring Soon
+        result = result.where((food) {
+          final days = food.expiryDate.difference(now).inDays;
+          return days >= 0 && days <= expiryAlertDays;
+        }).toList();
+        break;
+      case 2: // Expired
+        result = result.where((food) {
+          return food.expiryDate.difference(now).inDays < 0;
+        }).toList();
+        break;
+      case 3: // Category (show all for now, could open category picker)
+        // For now, just show all. You could implement category selection here
+        break;
+    }
+
+    setState(() {
+      filteredFoods = result;
+    });
   }
 
   String _getCategoryName(String categoryId) {
@@ -77,6 +165,16 @@ class _HomePageState extends State<HomePage> {
             letterSpacing: -0.5,
           ),
         ),
+        actions: [
+          // Quick test notification button
+          IconButton(
+            icon: const Icon(Icons.notification_add),
+            tooltip: 'Test Notification',
+            onPressed: () {
+              Navigator.pushNamed(context, AppRouter.quickTest);
+            },
+          ),
+        ],
       ),
       body: SingleChildScrollView(
         child: Column(
@@ -100,16 +198,24 @@ class _HomePageState extends State<HomePage> {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Row(
-        children: const [
-          _SummaryCard(title: "Total Items", count: "33", color: Colors.black),
-          SizedBox(width: 8),
+        children: [
+          _SummaryCard(
+            title: "Total Items",
+            count: totalItems.toString(),
+            color: Colors.black,
+          ),
+          const SizedBox(width: 8),
           _SummaryCard(
             title: "Expiring Soon",
-            count: "5",
+            count: expiringSoonCount.toString(),
             color: Colors.orange,
           ),
-          SizedBox(width: 8),
-          _SummaryCard(title: "Expired", count: "2", color: Colors.red),
+          const SizedBox(width: 8),
+          _SummaryCard(
+            title: "Expired",
+            count: expiredCount.toString(),
+            color: Colors.red,
+          ),
         ],
       ),
     );
@@ -119,10 +225,19 @@ class _HomePageState extends State<HomePage> {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: TextField(
+        controller: _searchController,
         decoration: InputDecoration(
           prefixIcon: const Icon(Icons.search),
           hintText: "Search for an item...",
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+          suffixIcon: _searchQuery.isNotEmpty
+              ? IconButton(
+                  icon: const Icon(Icons.clear),
+                  onPressed: () {
+                    _searchController.clear();
+                  },
+                )
+              : null,
         ),
       ),
     );
@@ -141,7 +256,12 @@ class _HomePageState extends State<HomePage> {
           return ChoiceChip(
             label: Text(filters[index]),
             selected: isSelected,
-            onSelected: (_) => setState(() => selectedFilterIndex = index),
+            onSelected: (_) {
+              setState(() {
+                selectedFilterIndex = index;
+                _applyFilters();
+              });
+            },
             selectedColor: Colors.green.shade200,
           );
         },
@@ -152,23 +272,43 @@ class _HomePageState extends State<HomePage> {
 
   Widget _buildFoodList() {
     if (isLoading) {
-      return const Center(child: CircularProgressIndicator());
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(40),
+          child: CircularProgressIndicator(),
+        ),
+      );
     }
 
-    if (foods.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.all(20),
-        child: Text("No food items found"),
+    if (filteredFoods.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.all(40),
+        child: Center(
+          child: Column(
+            children: [
+              Icon(Icons.search_off, size: 64, color: Colors.grey[400]),
+              const SizedBox(height: 16),
+              Text(
+                _searchQuery.isNotEmpty
+                    ? "No items match your search"
+                    : "No food items found",
+                style: TextStyle(
+                  fontSize: 16,
+                  color: Colors.grey[600],
+                ),
+              ),
+            ],
+          ),
+        ),
       );
     }
 
     return ListView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
-      itemCount: foods.length,
+      itemCount: filteredFoods.length,
       itemBuilder: (context, index) {
-        final food = foods[index];
-      print('🚀 food...${food}');
+        final food = filteredFoods[index];
         final days = food.expiryDate.difference(DateTime.now()).inDays;
         final category = _getCategoryName(food.categoryId);
 
@@ -178,7 +318,7 @@ class _HomePageState extends State<HomePage> {
         if (days < 0) {
           statusColor = Colors.red;
           statusText = "Expired";
-        } else if (days <= food.notificationThreshold) {
+        } else if (days <= expiryAlertDays) {
           statusColor = Colors.orange;
           statusText = "$days days left";
         } else {
@@ -199,18 +339,25 @@ class _HomePageState extends State<HomePage> {
             child: ListTile(
               leading: ClipRRect(
                 borderRadius: BorderRadius.circular(8),
-                child: Image.network(
-                  food.imageUrl ?? '',
-                  width: 50,
-                  height: 50,
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, error, _) => Container(
-                    width: 50,
-                    height: 50,
-                    color: Colors.grey.shade300,
-                    child: const Icon(Icons.image_not_supported),
-                  ),
-                ),
+                child: food.imageUrl != null && food.imageUrl!.isNotEmpty
+                    ? Image.network(
+                        food.imageUrl!,
+                        width: 50,
+                        height: 50,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, _) => Container(
+                          width: 50,
+                          height: 50,
+                          color: Colors.grey.shade300,
+                          child: const Icon(Icons.image_not_supported),
+                        ),
+                      )
+                    : Container(
+                        width: 50,
+                        height: 50,
+                        color: Colors.grey.shade300,
+                        child: const Icon(Icons.fastfood),
+                      ),
               ),
               title: Text(
                 food.name,
@@ -275,8 +422,8 @@ class _HomePageState extends State<HomePage> {
             // TODO: Navigate to Shopping List
             break;
           case 3:
-            // Navigate to Alerts page
-            
+            // Navigate to Test Notifications page
+            Navigator.pushNamed(context, AppRouter.testNotifications);
             break;
           case 4:
             // TODO: Navigate to Notifications Settings
