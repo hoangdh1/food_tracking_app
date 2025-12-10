@@ -1,9 +1,11 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/food_model.dart';
+import '../services/notification_service.dart';
 
 class FoodRepository {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final String _collection = 'foods';
+  final NotificationService _notificationService = NotificationService();
 
   CollectionReference get _foodCollection => _firestore.collection(_collection);
 
@@ -12,28 +14,32 @@ Future<String> addFood(FoodItem food) async {
   try {
     print('📝 REPO: addFood called');
     print('📝 REPO: Food name: ${food.name}');
-    
+
     final foodMap = food.toMap();
     print('📝 REPO: Food map created');
-    
+
     print('📝 REPO: Adding to Firestore collection "foods"... ${foodMap}');
     final docRef = await _foodCollection.add(foodMap);
-    
+
     print('✅ REPO: Document added successfully!');
     print('✅ REPO: Document ID: ${docRef.id}');
     print('✅ REPO: Document path: ${docRef.path}');
-    
+
     // Verify the write
     print('🔍 REPO: Verifying document exists...');
     final doc = await docRef.get();
-    
+
     if (doc.exists) {
       print('✅ REPO: Document verified on server!');
       print('✅ REPO: Data: ${doc.data()}');
+
+      // Schedule notification for the new food item
+      final newFood = FoodItem.fromFirestore(doc);
+      await _notificationService.scheduleNotificationForFood(newFood);
     } else {
       print('⚠️ REPO: Document not found on server (may be cached)');
     }
-    
+
     return docRef.id;
   } catch (e, stackTrace) {
     print('❌ REPO ERROR: $e');
@@ -165,6 +171,11 @@ Future<String> addFood(FoodItem food) async {
       await _foodCollection.doc(id).update(
         food.copyWith(updatedAt: DateTime.now()).toMap(),
       );
+
+      // Update notification (cancel old and schedule new)
+      await _notificationService.cancelNotificationForFood(id);
+      final updatedFood = food.copyWith(id: id, updatedAt: DateTime.now());
+      await _notificationService.scheduleNotificationForFood(updatedFood);
     } catch (e) {
       throw Exception('Failed to update food: $e');
     }
@@ -175,6 +186,16 @@ Future<String> addFood(FoodItem food) async {
     try {
       fields['updatedAt'] = Timestamp.fromDate(DateTime.now());
       await _foodCollection.doc(id).update(fields);
+
+      // If expiry date was updated, reschedule notification
+      if (fields.containsKey('expiryDate')) {
+        final doc = await _foodCollection.doc(id).get();
+        if (doc.exists) {
+          final updatedFood = FoodItem.fromFirestore(doc);
+          await _notificationService.cancelNotificationForFood(id);
+          await _notificationService.scheduleNotificationForFood(updatedFood);
+        }
+      }
     } catch (e) {
       throw Exception('Failed to update food fields: $e');
     }
@@ -187,6 +208,9 @@ Future<String> addFood(FoodItem food) async {
         'isDeleted': true,
         'updatedAt': Timestamp.fromDate(DateTime.now()),
       });
+
+      // Cancel notification when food is deleted
+      await _notificationService.cancelNotificationForFood(id);
     } catch (e) {
       throw Exception('Failed to delete food: $e');
     }
@@ -196,6 +220,9 @@ Future<String> addFood(FoodItem food) async {
   Future<void> permanentlyDeleteFood(String id) async {
     try {
       await _foodCollection.doc(id).delete();
+
+      // Cancel notification when food is permanently deleted
+      await _notificationService.cancelNotificationForFood(id);
     } catch (e) {
       throw Exception('Failed to permanently delete food: $e');
     }

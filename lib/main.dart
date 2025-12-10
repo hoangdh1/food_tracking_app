@@ -4,6 +4,7 @@ import 'package:food_tracking/firebase_options.dart';
 import 'router/app_router.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'data/services/initialization_service.dart';
+import 'data/services/notification_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 void main() async {
@@ -32,8 +33,14 @@ void main() async {
   //   '   - Cache size: ${FirebaseFirestore.instance.settings.cacheSizeBytes}',
   // );
 
-  print('🔥 Step 3: Initializing app data...');
+  print('🔥 Step 3: Initializing notification service...');
+  await NotificationService().initialize();
+
+  print('🔥 Step 4: Initializing app data...');
   await InitializationService().initializeApp();
+
+  print('🔥 Step 5: Scheduling notifications for existing foods...');
+  await NotificationService().rescheduleAllNotifications();
 
   // print('🔥 Step x: Testing Firestore connection...');
   // try {

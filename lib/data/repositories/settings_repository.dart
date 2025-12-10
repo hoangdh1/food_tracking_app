@@ -1,12 +1,14 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/settings_model.dart';
+import '../services/notification_service.dart';
 
 class SettingsRepository {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final String _collection = 'settings';
   static const String _defaultDocId = 'user_settings';
+  final NotificationService _notificationService = NotificationService();
 
-  DocumentReference get _settingsDoc => 
+  DocumentReference get _settingsDoc =>
       _firestore.collection(_collection).doc(_defaultDocId);
 
   // READ - Get settings (create default if not exists)
@@ -106,6 +108,13 @@ class SettingsRepository {
       await updateSettingsFields({
         'enablePushNotifications': enabled,
       });
+
+      // Reschedule all notifications when toggled
+      if (enabled) {
+        await _notificationService.rescheduleAllNotifications();
+      } else {
+        await _notificationService.cancelAllNotifications();
+      }
     } catch (e) {
       throw Exception('Failed to toggle push notifications: $e');
     }
@@ -120,6 +129,9 @@ class SettingsRepository {
       await updateSettingsFields({
         'expiryAlertDays': days,
       });
+
+      // Reschedule all notifications with new alert days
+      await _notificationService.rescheduleAllNotifications();
     } catch (e) {
       throw Exception('Failed to update expiry alert days: $e');
     }
@@ -131,6 +143,10 @@ class SettingsRepository {
       await updateSettingsFields({
         'dailySummaryEnabled': enabled,
       });
+
+      // Update daily summary notification
+      final settings = await getSettings();
+      await _notificationService.scheduleDailySummary(settings.summaryTime);
     } catch (e) {
       throw Exception('Failed to toggle daily summary: $e');
     }
@@ -144,20 +160,23 @@ class SettingsRepository {
       if (timeParts.length != 2) {
         throw Exception('Invalid time format. Use HH:mm');
       }
-      
+
       final hour = int.tryParse(timeParts[0]);
       final minute = int.tryParse(timeParts[1]);
-      
+
       if (hour == null || hour < 0 || hour > 23) {
         throw Exception('Invalid hour. Must be between 0 and 23');
       }
       if (minute == null || minute < 0 || minute > 59) {
         throw Exception('Invalid minute. Must be between 0 and 59');
       }
-      
+
       await updateSettingsFields({
         'summaryTime': time,
       });
+
+      // Reschedule daily summary with new time
+      await _notificationService.scheduleDailySummary(time);
     } catch (e) {
       throw Exception('Failed to update summary time: $e');
     }

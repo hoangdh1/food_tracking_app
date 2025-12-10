@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 import '../../../router/app_router.dart';
+import '../../../data/repositories/food_repository.dart';
+import '../../../data/repositories/settings_repository.dart';
+import '../../../data/models/food_model.dart';
+import '../../../data/models/settings_model.dart';
 
 class NotificationPage extends StatefulWidget {
   const NotificationPage({super.key});
@@ -9,43 +13,91 @@ class NotificationPage extends StatefulWidget {
 }
 
 class _NotificationPageState extends State<NotificationPage> {
+  final FoodRepository _foodRepo = FoodRepository();
+  final SettingsRepository _settingsRepo = SettingsRepository();
+
   bool _pushNotificationsEnabled = true;
   bool _dailySummaryEnabled = false;
   double _expiryAlertDays = 3;
 
-  final List<Map<String, dynamic>> _expiringSoonItems = [
-    {
-      'id': 'milk_001',
-      'name': 'Organic Milk',
-      'image':
-          'https://lh3.googleusercontent.com/aida-public/AB6AXuAMGQWFA0Pjvan2GGA19ddOJAUq87Mj2Fr2jvwJTYmGXO6pmAfPaEjx5R_33dcYHhcIWl7J9f_lTxOslunllyKQMqtpI4fNFwCtZDFqMESivoMjzpVfGRqXrBdflsNf165KRQxHVYNlpDvU1yS2FzUKlVMGH4tJgNHuXI2dIAXgnYRAT5TPM6e3IokWnuA-b8LXXvsJOUPLkR-3yeENXLqQhshZGwB9TRaS47sj-C_U7WQsjR7GSx7kZtE5_e2Dcf66F21CRm5YgY8',
-      'daysLeft': 2,
-    },
-    {
-      'id': 'salad_002',
-      'name': 'Fresh Salad Mix',
-      'image':
-          'https://lh3.googleusercontent.com/aida-public/AB6AXuDtrke6bl5cH-ZxCmgiOG3RTBGkATy7cZPn_lhCBEACB0TWLEmXKZEgbHzIcdUGS2md4nz15rcZhSC6IBDoo-KKnSdriDUVLWbT5QP8GsxD3BCfNGj9AnCdzScjWQCsGn8r1gsNMYjgoFSUCvmasLZOsD4265hgtVRxAiRUBcWqGrgEgONClNqeUTdIGT0egQeunY6DdqmN-gP41PbGBQwKeOjREVBrYZzFfcTjx4BHzHiEn4ra6uF3t3dKxWATsof4ICWysWuJZPI',
-      'daysLeft': 3,
-    },
-    {
-      'id': 'pizza_003',
-      'name': 'Leftover Pizza',
-      'image':
-          'https://lh3.googleusercontent.com/aida-public/AB6AXuBJ-YVK1qqtsjq_LghvYgDil3YArrapk6EH1clqXvmGc12TXeJSG-e1qbKFdbpaj8m1zZvpwPKt98wL6YY5ewdSek9ytLD-I8RyaLU9FHk6P4ior1EJMl0Dfepc12p4fFn2GGCCw2gUavXC6UwvG-XtjZDQmr6OV7aIh4Ahx1Slv6n4kRzK9QgCtBen1Y5s_znFTyAMJbi4-K90p5qBVdqDgzP92d9gvh9TgFWHclulAqmpPMXtzrPrRMectpKH8eSwDp1sgbxH2aI',
-      'daysLeft': 4,
-    },
-  ];
+  List<FoodItem> _expiringSoonItems = [];
+  List<FoodItem> _expiredItems = [];
+  bool _isLoading = true;
 
-  final List<Map<String, dynamic>> _expiredItems = [
-    {
-      'id': 'beef_004',
-      'name': 'Beef Patties',
-      'image':
-          'https://lh3.googleusercontent.com/aida-public/AB6AXuDelaazP5q89SX73uriuHL3KqVA3GEdB-lNu_LmhTdCjOQ3WD3FGN6zS4Ay8KjoUVcwbCBAyULV37WHbPePnwQZR19saszXW-TfnvwYb7ZS8DjZ7LFuZm23TSf4DMKeShntiBWLsZWXAhrSoAGDvChZIgF0phHkADrhdEyr7FSPuoE6laIa9NAfsEnYXLTuohBOXpDFILr8BpotNev6LeUETm9ri9J2d-G3s5Jx69taiIBy4PDVVlYb3OpjUSd0SFvnQgIoiwPAz9M',
-      'daysAgo': 1,
-    },
-  ];
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
+
+  Future<void> _loadData() async {
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      // Load settings and food items in parallel
+      final results = await Future.wait([
+        _settingsRepo.getSettings(),
+        _foodRepo.getExpiringSoonFoods(daysThreshold: _expiryAlertDays.toInt()),
+        _foodRepo.getExpiredFoods(),
+      ]);
+
+      final settings = results[0] as AppSettings;
+      final expiringSoon = results[1] as List<FoodItem>;
+      final expired = results[2] as List<FoodItem>;
+
+      setState(() {
+        _pushNotificationsEnabled = settings.enablePushNotifications;
+        _dailySummaryEnabled = settings.dailySummaryEnabled;
+        _expiryAlertDays = settings.expiryAlertDays.toDouble();
+        _expiringSoonItems = expiringSoon;
+        _expiredItems = expired;
+        _isLoading = false;
+      });
+    } catch (e) {
+      print('Error loading notification data: $e');
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _updatePushNotifications(bool value) async {
+    setState(() => _pushNotificationsEnabled = value);
+    try {
+      await _settingsRepo.togglePushNotifications(value);
+    } catch (e) {
+      print('Error updating push notifications: $e');
+    }
+  }
+
+  Future<void> _updateDailySummary(bool value) async {
+    setState(() => _dailySummaryEnabled = value);
+    try {
+      await _settingsRepo.toggleDailySummary(value);
+    } catch (e) {
+      print('Error updating daily summary: $e');
+    }
+  }
+
+  Future<void> _updateExpiryAlertDays(double value) async {
+    setState(() => _expiryAlertDays = value);
+    try {
+      await _settingsRepo.updateExpiryAlertDays(value.toInt());
+      // Reload food items with new threshold
+      final results = await Future.wait([
+        _foodRepo.getExpiringSoonFoods(daysThreshold: value.toInt()),
+        _foodRepo.getExpiredFoods(),
+      ]);
+      setState(() {
+        _expiringSoonItems = results[0] as List<FoodItem>;
+        _expiredItems = results[1] as List<FoodItem>;
+      });
+    } catch (e) {
+      print('Error updating expiry alert days: $e');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -69,19 +121,21 @@ class _NotificationPageState extends State<NotificationPage> {
           ),
         ),
       ),
-      body: SingleChildScrollView(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildNotificationSettings(),
-              const SizedBox(height: 24),
-              _buildProductStatus(),
-            ],
-          ),
-        ),
-      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : SingleChildScrollView(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildNotificationSettings(),
+                    const SizedBox(height: 24),
+                    _buildProductStatus(),
+                  ],
+                ),
+              ),
+            ),
     );
   }
 
@@ -119,9 +173,7 @@ class _NotificationPageState extends State<NotificationPage> {
                 title: 'Enable Push Notifications',
                 subtitle: 'Receive alerts for your items',
                 value: _pushNotificationsEnabled,
-                onChanged: (value) {
-                  setState(() => _pushNotificationsEnabled = value);
-                },
+                onChanged: _updatePushNotifications,
                 showDivider: true,
               ),
               _buildExpirySlider(),
@@ -130,9 +182,7 @@ class _NotificationPageState extends State<NotificationPage> {
                 title: 'Daily Summary Reminder',
                 subtitle: 'Get a summary at 09:00 AM',
                 value: _dailySummaryEnabled,
-                onChanged: (value) {
-                  setState(() => _dailySummaryEnabled = value);
-                },
+                onChanged: _updateDailySummary,
                 showDivider: false,
               ),
             ],
@@ -249,9 +299,7 @@ class _NotificationPageState extends State<NotificationPage> {
                   min: 1,
                   max: 7,
                   divisions: 6,
-                  onChanged: (value) {
-                    setState(() => _expiryAlertDays = value);
-                  },
+                  onChanged: _updateExpiryAlertDays,
                 ),
               ),
             ],
@@ -290,12 +338,12 @@ class _NotificationPageState extends State<NotificationPage> {
       count: _expiringSoonItems.length,
       badgeColor: const Color(0xFFFFC107),
       isExpanded: true,
-      items: _expiringSoonItems.map((item) {
+      items: _expiringSoonItems.map((food) {
         return _buildFoodItem(
-          id: item['id'] as String,
-          name: item['name'] as String,
-          image: item['image'] as String,
-          statusText: 'Expires in ${item['daysLeft']} days',
+          id: food.id,
+          name: food.name,
+          image: food.imageUrl ?? '',
+          statusText: 'Expires in ${food.daysUntilExpiry} days',
           statusColor: const Color(0xFFFFC107),
         );
       }).toList(),
@@ -308,12 +356,13 @@ class _NotificationPageState extends State<NotificationPage> {
       count: _expiredItems.length,
       badgeColor: const Color(0xFFEF5350),
       isExpanded: false,
-      items: _expiredItems.map((item) {
+      items: _expiredItems.map((food) {
+        final daysAgo = food.daysUntilExpiry.abs();
         return _buildFoodItem(
-          id: item['id'] as String,
-          name: item['name'] as String,
-          image: item['image'] as String,
-          statusText: 'Expired ${item['daysAgo']} day ago',
+          id: food.id,
+          name: food.name,
+          image: food.imageUrl ?? '',
+          statusText: 'Expired $daysAgo ${daysAgo == 1 ? 'day' : 'days'} ago',
           statusColor: const Color(0xFFEF5350),
         );
       }).toList(),
@@ -379,15 +428,25 @@ class _NotificationPageState extends State<NotificationPage> {
               ),
             ],
           ),
-          children: [
-            const Divider(height: 1, color: Color(0xFFE0E0E0)),
-            Padding(
-              padding: const EdgeInsets.all(8),
-              child: Column(
-                children: items,
-              ),
-            ),
-          ],
+          children: items.isEmpty
+              ? [
+                  const Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Text(
+                      'No items',
+                      style: TextStyle(color: Color(0xFF666666)),
+                    ),
+                  ),
+                ]
+              : [
+                  const Divider(height: 1, color: Color(0xFFE0E0E0)),
+                  Padding(
+                    padding: const EdgeInsets.all(8),
+                    child: Column(
+                      children: items,
+                    ),
+                  ),
+                ],
         ),
       ),
     );
@@ -410,18 +469,25 @@ class _NotificationPageState extends State<NotificationPage> {
         contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         leading: ClipRRect(
           borderRadius: BorderRadius.circular(8),
-          child: Image.network(
-            image,
-            width: 56,
-            height: 56,
-            fit: BoxFit.cover,
-            errorBuilder: (context, error, stackTrace) => Container(
-              width: 56,
-              height: 56,
-              color: Colors.grey.shade300,
-              child: const Icon(Icons.image_not_supported),
-            ),
-          ),
+          child: image.isNotEmpty
+              ? Image.network(
+                  image,
+                  width: 56,
+                  height: 56,
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) => Container(
+                    width: 56,
+                    height: 56,
+                    color: Colors.grey.shade300,
+                    child: const Icon(Icons.image_not_supported),
+                  ),
+                )
+              : Container(
+                  width: 56,
+                  height: 56,
+                  color: Colors.grey.shade300,
+                  child: const Icon(Icons.fastfood),
+                ),
         ),
         title: Text(
           name,
@@ -443,13 +509,14 @@ class _NotificationPageState extends State<NotificationPage> {
           Icons.chevron_right,
           color: Color(0xFF666666),
         ),
-        onTap: () {
-          // Navigate to food detail page with the food ID
-          Navigator.pushNamed(
+        onTap: () async {
+          // Navigate to food detail page and refresh on return
+          await Navigator.pushNamed(
             context,
             AppRouter.foodDetail,
             arguments: id,
           );
+          _loadData(); // Refresh data after returning
         },
       ),
     );
