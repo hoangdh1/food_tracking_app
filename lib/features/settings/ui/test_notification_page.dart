@@ -41,11 +41,12 @@ class _TestNotificationPageState extends State<TestNotificationPage> {
         title: const Text('Test Notifications'),
         backgroundColor: Colors.blue,
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
+      body: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
             // Result Display
             Container(
               padding: const EdgeInsets.all(16),
@@ -236,7 +237,8 @@ class _TestNotificationPageState extends State<TestNotificationPage> {
                 ],
               ),
             ),
-          ],
+            ],
+          ),
         ),
       ),
     );

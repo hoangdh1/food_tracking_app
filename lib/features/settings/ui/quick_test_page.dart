@@ -12,10 +12,13 @@ class QuickTestPage extends StatelessWidget {
         title: const Text('Quick Notification Test'),
         backgroundColor: Colors.purple,
       ),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
+      body: SingleChildScrollView(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 40),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
             const Icon(
               Icons.notifications_active,
               size: 100,
@@ -128,7 +131,9 @@ class QuickTestPage extends StatelessWidget {
                 ],
               ),
             ),
-          ],
+              ],
+            ),
+          ),
         ),
       ),
     );

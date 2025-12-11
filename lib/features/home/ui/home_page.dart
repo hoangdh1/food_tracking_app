@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import '../../../router/app_router.dart';
-import '../../../data/repositories/food_repository.dart';
+// import '../../../data/repositories/food_repository.dart'; // OLD: Using Firestore
 import '../../../data/repositories/category_repository.dart';
 import '../../../data/repositories/settings_repository.dart';
 import '../../../data/models/food_model.dart';
 import '../../../data/models/category_model.dart';
+import '../../../data/local/local_food_data.dart';
+import '../../../data/services/food_api_service.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -16,14 +18,16 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   int selectedFilterIndex = 0;
 
-  final FoodRepository _foodRepo = FoodRepository();
+  // final FoodRepository _foodRepo = FoodRepository(); // OLD: Using Firestore
   final CategoryRepository _categoryRepo = CategoryRepository();
   final SettingsRepository _settingsRepo = SettingsRepository();
+  final FoodApiService _apiService = FoodApiService();
 
-  List<FoodItem> allFoods = []; // All foods from database
+  List<FoodItem> allFoods = []; // All foods from local data
   List<FoodItem> filteredFoods = []; // Filtered foods to display
   Map<String, String> categoryMap = {}; // categoryId -> categoryName
   bool isLoading = true;
+  bool isRefreshing = false;
 
   // Search controller
   final TextEditingController _searchController = TextEditingController();
@@ -62,19 +66,26 @@ class _HomePageState extends State<HomePage> {
     });
 
     try {
-      // Load foods, categories, and settings in parallel
+      // OLD: Load from Firestore
+      // final results = await Future.wait([
+      //   _foodRepo.getAllFoods(),
+      //   _categoryRepo.getCategoriesMap(),
+      //   _settingsRepo.getSettings(),
+      // ]);
+
+      // NEW: Load from local data - initially show all foods
       final results = await Future.wait([
-        _foodRepo.getAllFoods(),
         _categoryRepo.getCategoriesMap(),
         _settingsRepo.getSettings(),
       ]);
 
-      final loadedFoods = results[0] as List<FoodItem>;
-      final categories = results[1] as Map<String, Category>;
-      final settings = results[2] as dynamic;
+      // final loadedFoods = results[0] as List<FoodItem>; // OLD
+      final categories = results[0] as Map<String, Category>;
+      final settings = results[1] as dynamic;
 
       setState(() {
-        allFoods = loadedFoods;
+        // Load all local foods initially
+        allFoods = LocalFoodData.allFoods;
         categoryMap = categories.map((id, cat) => MapEntry(id, cat.name));
         expiryAlertDays = settings.expiryAlertDays as int;
         _calculateStatistics();
@@ -86,6 +97,82 @@ class _HomePageState extends State<HomePage> {
       setState(() {
         isLoading = false;
       });
+    }
+  }
+
+  /// Refresh food list by calling API and filtering local data
+  Future<void> _refreshFromApi() async {
+    setState(() {
+      isRefreshing = true;
+    });
+
+    try {
+      print('🔄 Refreshing food list from API...');
+
+      // Call API to get list of food IDs
+      final foodIds = await _apiService.getAllFoodIds();
+
+      if (foodIds.isEmpty) {
+        print('⚠️ API returned empty list or failed. Showing all local foods.');
+        // Show snackbar to user
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('⚠️ Could not fetch data from server. Showing all items.'),
+              backgroundColor: Colors.orange,
+              duration: Duration(seconds: 3),
+            ),
+          );
+        }
+
+        // Keep showing all local foods
+        setState(() {
+          allFoods = LocalFoodData.allFoods;
+          _calculateStatistics();
+          _applyFilters();
+          isRefreshing = false;
+        });
+        return;
+      }
+
+      // Filter local foods based on API response
+      final filteredLocalFoods = LocalFoodData.getFilteredFoods(foodIds);
+
+      setState(() {
+        allFoods = filteredLocalFoods;
+        _calculateStatistics();
+        _applyFilters();
+        isRefreshing = false;
+      });
+
+      print('✅ Food list updated! Showing ${filteredLocalFoods.length} items');
+
+      // Show success snackbar
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('✅ Updated! Showing ${filteredLocalFoods.length} items'),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      print('❌ Error refreshing from API: $e');
+      setState(() {
+        isRefreshing = false;
+      });
+
+      // Show error snackbar
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('❌ Failed to refresh. Please try again.'),
+            backgroundColor: Colors.red,
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
     }
   }
 
@@ -166,6 +253,21 @@ class _HomePageState extends State<HomePage> {
           ),
         ),
         actions: [
+          // Refresh button - calls API and updates food list
+          IconButton(
+            icon: isRefreshing
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                : const Icon(Icons.refresh),
+            tooltip: 'Refresh from Server',
+            onPressed: isRefreshing ? null : _refreshFromApi,
+          ),
           // Quick test notification button
           IconButton(
             icon: const Icon(Icons.notification_add),
@@ -366,7 +468,7 @@ class _HomePageState extends State<HomePage> {
               subtitle: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text("${category} • ${food.quantity}"),
+                  Text("${category} • ${food.quantity > 1 ? '${food.quantity} items' : '1 item'}"),
                   const SizedBox(height: 4),
                   Text(
                     statusText,
@@ -380,10 +482,12 @@ class _HomePageState extends State<HomePage> {
               trailing: const Icon(Icons.chevron_right),
               onTap: () async {
                 // Navigate to food detail page and refresh on return
+                // Use Firestore ID for navigation (mapped from local ID)
+                final firestoreId = LocalFoodData.getFirestoreId(food.id);
                 await Navigator.pushNamed(
                   context,
                   AppRouter.foodDetail,
-                  arguments: food.id,
+                  arguments: firestoreId,
                 );
                 _loadData(); // Refresh data after returning
               },
