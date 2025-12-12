@@ -4,6 +4,7 @@ import '../../../data/repositories/food_repository.dart';
 import '../../../data/repositories/category_repository.dart';
 import '../../../data/models/food_model.dart';
 import '../../../data/models/category_model.dart';
+import '../../../data/local/local_food_data.dart';
 
 enum FoodDetailMode { view, edit }
 
@@ -323,17 +324,23 @@ class _FoodDetailPageState extends State<FoodDetailPage> {
   Widget _buildImageSection() {
     return Stack(
       children: [
-        ClipRRect(
-          borderRadius: BorderRadius.circular(16),
-          child: _foodItem!.imageUrl.isNotEmpty
-              ? Image.network(
-                  _foodItem!.imageUrl,
-                  height: 256,
-                  width: double.infinity,
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) => _buildPlaceholderImage(),
-                )
-              : _buildPlaceholderImage(),
+        Container(
+          height: 256,
+          width: double.infinity,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            color: Colors.grey[100],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: _foodItem!.imageUrl.isNotEmpty
+                ? Image.asset(
+                    _foodItem!.imageUrl,
+                    fit: BoxFit.contain,
+                    errorBuilder: (context, error, stackTrace) => _buildPlaceholderImage(),
+                  )
+                : _buildPlaceholderImage(),
+          ),
         ),
         if (_mode == FoodDetailMode.edit)
           Positioned(
